@@ -3,6 +3,7 @@ package ok.dht.test.drozdov.dao;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
+import org.jetbrains.annotations.NotNull;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.Cleaner;
@@ -15,12 +16,15 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.concurrent.ThreadFactory;
+import static ok.dht.test.drozdov.dao.StorageUtils.checkForClose;
+import static ok.dht.test.drozdov.dao.StorageUtils.getSize;
+import static ok.dht.test.drozdov.dao.StorageUtils.mapForRead;
 
-class Storage implements Closeable {
+final class Storage implements Closeable {
 
     private static final Cleaner CLEANER = Cleaner.create(new ThreadFactory() {
         @Override
-        public Thread newThread(Runnable r) {
+        public Thread newThread(@NotNull Runnable r) {
             return new Thread(r, "Storage-Cleaner") {
                 @Override
                 public synchronized void start() {
@@ -39,6 +43,15 @@ class Storage implements Closeable {
     private static final String FILE_EXT = ".dat";
     private static final String FILE_EXT_TMP = ".tmp";
     private static final String COMPACTED_FILE = FILE_NAME + "_compacted_" + FILE_EXT;
+    private final ResourceScope scope;
+    private final ArrayList<MemorySegment> sstables;
+    private final boolean hasTombstones;
+
+    private Storage(ResourceScope scope, ArrayList<MemorySegment> sstables, boolean hasTombstones) {
+        this.scope = scope;
+        this.sstables = sstables;
+        this.hasTombstones = hasTombstones;
+    }
 
     static Storage load(Config config) throws IOException {
         Path basePath = config.basePath();
@@ -65,19 +78,13 @@ class Storage implements Closeable {
     }
 
     // it is supposed that entries can not be changed externally during this method call
-    static void save(
-            Config config,
-            Storage previousState,
-            Collection<Entry> entries) throws IOException {
+    static void save(Config config, Storage previousState, Collection<Entry> entries) throws IOException {
         int nextSSTableIndex = previousState.sstables.size();
         Path sstablePath = config.basePath().resolve(FILE_NAME + nextSSTableIndex + FILE_EXT);
         save(entries::iterator, sstablePath);
     }
 
-    private static void save(
-            Data entries,
-            Path sstablePath
-    ) throws IOException {
+    private static void save(Data entries, Path sstablePath) throws IOException {
 
         Path sstableTmpPath = sstablePath.resolveSibling(sstablePath.getFileName().toString() + FILE_EXT_TMP);
 
@@ -99,13 +106,9 @@ class Storage implements Closeable {
 
             long dataStart = INDEX_HEADER_SIZE + INDEX_RECORD_SIZE * entriesCount;
 
-            MemorySegment nextSSTable = MemorySegment.mapFile(
-                    sstableTmpPath,
-                    0,
-                    dataStart + size,
-                    FileChannel.MapMode.READ_WRITE,
-                    writeScope
-            );
+            MemorySegment nextSSTable =
+                    MemorySegment.mapFile(sstableTmpPath, 0, dataStart + size, FileChannel.MapMode.READ_WRITE,
+                            writeScope);
 
             long index = 0;
             long offset = dataStart;
@@ -129,13 +132,7 @@ class Storage implements Closeable {
         Files.move(sstableTmpPath, sstablePath, StandardCopyOption.ATOMIC_MOVE);
     }
 
-    private static long getSize(Entry entry) {
-        if (entry.value() == null) {
-            return Long.BYTES + entry.key().byteSize() + Long.BYTES;
-        } else {
-            return Long.BYTES + entry.value().byteSize() + entry.key().byteSize() + Long.BYTES;
-        }
-    }
+    // supposed to have fresh files first
 
     public static long getSizeOnDisk(Entry entry) {
         return getSize(entry) + INDEX_RECORD_SIZE;
@@ -150,13 +147,6 @@ class Storage implements Closeable {
         MemoryAccess.setLongAtOffset(nextSSTable, offset, recordSize);
         nextSSTable.asSlice(offset + Long.BYTES, recordSize).copyFrom(record);
         return Long.BYTES + recordSize;
-    }
-
-    @SuppressWarnings("DuplicateThrows")
-    private static MemorySegment mapForRead(ResourceScope scope, Path file) throws NoSuchFileException, IOException {
-        long size = Files.size(file);
-
-        return MemorySegment.mapFile(file, 0, size, FileChannel.MapMode.READ_ONLY, scope);
     }
 
     public static void compact(Config config, Data data) throws IOException {
@@ -174,18 +164,6 @@ class Storage implements Closeable {
         }
 
         Files.move(compactedFile, config.basePath().resolve(FILE_NAME + 0 + FILE_EXT), StandardCopyOption.ATOMIC_MOVE);
-    }
-
-    // supposed to have fresh files first
-
-    private final ResourceScope scope;
-    private final ArrayList<MemorySegment> sstables;
-    private final boolean hasTombstones;
-
-    private Storage(ResourceScope scope, ArrayList<MemorySegment> sstables, boolean hasTombstones) {
-        this.scope = scope;
-        this.sstables = sstables;
-        this.hasTombstones = hasTombstones;
     }
 
     private long greaterOrEqualEntryIndex(MemorySegment sstable, MemorySegment key) {
@@ -238,12 +216,10 @@ class Storage implements Closeable {
             long keySize = MemoryAccess.getLongAtOffset(sstable, offset);
             long valueOffset = offset + Long.BYTES + keySize;
             long valueSize = MemoryAccess.getLongAtOffset(sstable, valueOffset);
-            return new Entry(
-                    sstable.asSlice(offset + Long.BYTES, keySize),
-                    valueSize == -1 ? null : sstable.asSlice(valueOffset + Long.BYTES, valueSize)
-            );
+            return new Entry(sstable.asSlice(offset + Long.BYTES, keySize),
+                    valueSize == -1 ? null : sstable.asSlice(valueOffset + Long.BYTES, valueSize));
         } catch (IllegalStateException e) {
-            throw checkForClose(e);
+            throw checkForClose(this, e);
         }
     }
 
@@ -258,7 +234,7 @@ class Storage implements Closeable {
             }
             return null;
         } catch (IllegalStateException e) {
-            throw checkForClose(e);
+            throw checkForClose(this, e);
         }
     }
 
@@ -293,15 +269,7 @@ class Storage implements Closeable {
             }
             return iterators;
         } catch (IllegalStateException e) {
-            throw checkForClose(e);
-        }
-    }
-
-    private RuntimeException checkForClose(IllegalStateException e) {
-        if (isClosed()) {
-            throw new StorageClosedException(e);
-        } else {
-            throw e;
+            throw checkForClose(this, e);
         }
     }
 
