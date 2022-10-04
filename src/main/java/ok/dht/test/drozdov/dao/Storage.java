@@ -3,6 +3,7 @@ package ok.dht.test.drozdov.dao;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
+import org.jetbrains.annotations.NotNull;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.Cleaner;
@@ -20,7 +21,7 @@ class Storage implements Closeable {
 
     private static final Cleaner CLEANER = Cleaner.create(new ThreadFactory() {
         @Override
-        public Thread newThread(Runnable r) {
+        public Thread newThread(@NotNull Runnable r) {
             return new Thread(r, "Storage-Cleaner") {
                 @Override
                 public synchronized void start() {
