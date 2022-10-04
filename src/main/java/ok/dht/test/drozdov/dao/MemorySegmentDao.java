@@ -3,13 +3,18 @@ package ok.dht.test.drozdov.dao;
 import jdk.incubator.foreign.MemorySegment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -19,16 +24,14 @@ public class MemorySegmentDao {
 
     private static final Logger LOG = LoggerFactory.getLogger(MemorySegmentDao.class);
 
-    private static final MemorySegment VERY_FIRST_KEY = MemorySegment.ofArray(new byte[]{});
+    private static final MemorySegment VERY_FIRST_KEY = MemorySegment.ofArray(new byte[] {});
 
     private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(
             r -> new Thread(r, "MemorySegmentDaoBG"));
-
-    private volatile State state;
-
     private final Config config;
+    private volatile State state;
 
     public MemorySegmentDao(Config config) throws IOException {
         this.config = config;
@@ -413,6 +416,5 @@ public class MemorySegmentDao {
             return delegate.get(key);
         }
     }
-
 
 }

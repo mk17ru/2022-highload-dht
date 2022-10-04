@@ -3,7 +3,6 @@ package ok.dht.test.drozdov.dao;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.Cleaner;
@@ -101,11 +100,11 @@ class Storage implements Closeable {
             long dataStart = INDEX_HEADER_SIZE + INDEX_RECORD_SIZE * entriesCount;
 
             MemorySegment nextSSTable = MemorySegment.mapFile(
-                            sstableTmpPath,
-                            0,
-                            dataStart + size,
-                            FileChannel.MapMode.READ_WRITE,
-                            writeScope
+                    sstableTmpPath,
+                    0,
+                    dataStart + size,
+                    FileChannel.MapMode.READ_WRITE,
+                    writeScope
             );
 
             long index = 0;
@@ -313,6 +312,7 @@ class Storage implements Closeable {
                 scope.close();
                 return;
             } catch (IllegalStateException ignored) {
+                // ignored
             }
         }
     }
