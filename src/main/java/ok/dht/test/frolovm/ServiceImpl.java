@@ -41,6 +41,7 @@ public class ServiceImpl implements Service {
     private static final Logger LOGGER = LoggerFactory.getLogger(ServiceImpl.class);
     private final ServiceConfig config;
     private ExecutorService requestService;
+
     private MemorySegmentDao dao;
     private HttpServer server;
 
@@ -96,7 +97,6 @@ public class ServiceImpl implements Service {
             );
         }
         server = new HttpServer(createConfigFromPort(config.selfPort())) {
-
             @Override
             public void handleDefault(Request request, HttpSession session) throws IOException {
                 session.sendResponse(emptyResponse(Response.BAD_REQUEST));
@@ -176,7 +176,7 @@ public class ServiceImpl implements Service {
         return emptyResponse(Response.CREATED);
     }
 
-    void closeExecutorPool(ExecutorService pool) {
+    private void closeExecutorPool(ExecutorService pool) {
         pool.shutdown();
         try {
             if (!pool.awaitTermination(1, TimeUnit.SECONDS)) {
